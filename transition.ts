@@ -1,6 +1,8 @@
 import { Struct, VerificationKey, verify, Hash, Poseidon, Field, MerkleTree, MerkleWitness, MerkleMap, MerkleMapWitness, Proof, SelfProof, Bool, Bytes, Gadgets, ZkProgram } from 'o1js';
 
-export { fieldArray, transitionProgram, Wallet, MyPublicOutputs, hashInputs, MerkleWitness4};
+export { fieldArray, transitionProgram, Wallet, MyPublicOutputs, hashInputs, MerkleWitness4, FastTree};
+
+
 
 class MyPublicOutputs extends Struct({
   Leaf: Field,
@@ -16,6 +18,84 @@ class fieldArray extends Struct({
   array: [Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field],
 }) {}
 
+class FastTree {
+
+    constructor() {
+        
+    }
+
+    createMerkleTree(data: Field[]): Field {
+        if (data.length === 0) {
+            console.error('No input data provided for Merkle tree.');
+            return Field(0);
+        }
+
+        return buildMerkleTree(data);
+    }
+}
+
+/**
+ * Builds a Merkle tree from an array of Field elements and returns the Merkle root.
+ * @param data Array of Field elements to be used as leaves of the Merkle tree.
+ * @returns The root of the Merkle tree as a Field.
+ */
+/*
+   function calculateDepth(leafCount: number): number {
+        // Calculate the depth of the Merkle tree
+        let depth = 0;
+        let count = leafCount;
+        while (count > 1) {
+            count = Math.ceil(count / 2);
+            depth++;
+        }
+        return depth;
+    }
+
+   function buildMerkleTree(data: Field[]): Field {
+        let currentLevel = data;
+        const depth = calculateDepth(currentLevel.length);
+
+        for (let iteration = 0; iteration < depth; iteration++) {
+            if (currentLevel.length <= 1) break;
+
+            const nextLevel: Field[] = [];
+            const length = currentLevel.length;
+
+            for (let i = 0; i < length; i += 2) {
+                const left = currentLevel[i];
+                const right = (i + 1 < length) ? currentLevel[i + 1] : Field(0);  // Carry the last one forward if an odd number of elements
+                const hash = Poseidon.hash([left, right]);
+                nextLevel.push(hash);
+            }
+
+            currentLevel = nextLevel;
+        }
+
+        return currentLevel[0];  // The final hash, the root of the Merkle tree
+    }
+*/
+
+function buildMerkleTree(data: Field[]): Field {
+    let currentLevel = data;
+
+    while (currentLevel.length > 1) {
+        const nextLevel: Field[] = [];
+
+        for (let i = 0; i < currentLevel.length; i += 2) {
+            if (i + 1 < currentLevel.length) {
+                const hash = Poseidon.hash([currentLevel[i], currentLevel[i + 1]]);
+                nextLevel.push(hash);
+            } else {
+                // In case of an odd number of elements, just carry the last one forward
+                nextLevel.push(currentLevel[i]);
+            }
+        }
+
+        currentLevel = nextLevel;
+    }
+
+    return currentLevel[0]; // The final hash, the root of the Merkle tree
+}
 
 class MerkleWitness4 extends MerkleWitness(4) {}
 
@@ -147,7 +227,7 @@ class Wallet {
     const InputRoot = this.inTxsRootNew;
     const outputRoot = this.outTxsRoot;
 
-    this.stateHashNew = Poseidon.hash([publicKey, sourceAddress, destinationsRoot, balance, InputRoot, outputRoot]);
+    this.stateHashNew = buildMerkleTree([publicKey, sourceAddress, destinationsRoot, balance, InputRoot, outputRoot]);
 
     const stateHash = this.stateHashNew; // Current state hash
     const blockHash = this.blockHash; // Current block hash 
@@ -207,7 +287,7 @@ async proveStateAfterDestinationDerivation(pkSaltHash: Field, previnclusionmerkl
   const InputRoot = this.inTxsRootNew;
   const blockHash = this.blockHash; // Current block hash
 
-        const stateHashOld = Poseidon.hash([publicKey, sourceAddress, previousDestinationRoot, balance, InputRoot, previousOutputRoot]);
+        const stateHashOld = buildMerkleTree([publicKey, sourceAddress, previousDestinationRoot, balance, InputRoot, previousOutputRoot]);
 
     console.log(`Previous state hash: ${myPublicOutputs.Leaf.toString()}`);
     console.log(`Previous state hash recompute: ${stateHashOld.toString()}`);
@@ -433,7 +513,7 @@ async proveStateAfterAbsorbing(transactionDestination: Field, transactionBalance
     this.destinationExists = new MerkleWitness4(this.destinations.getWitness(index));
     this.destinationsRoot = this.destinationExists.calculateRoot(this.destinationNew);
 
-    this.stateHashNew = Poseidon.hash([this.pkHash, this.address, this.destinationsRoot, this.balance, this.inTxsRootNew, this.outTxsRoot]);
+    this.stateHashNew = buildMerkleTree([this.pkHash, this.address, this.destinationsRoot, this.balance, this.inTxsRootNew, this.outTxsRoot]);
     const messageHash = Poseidon.hash([this.address, this.stateHashNew]);
     return messageHash;
   }
@@ -448,8 +528,8 @@ async proveStateAfterAbsorbing(transactionDestination: Field, transactionBalance
 
     this.balanceNew = this.balance.add(amount)
 
-    this.stateHashNew = Poseidon.hash([this.pkHash, this.address, this.destinationsRoot, this.balanceNew, this.inTxsRootNew, this.outTxsRoot]);
-    const messageHash = Poseidon.hash([this.address, Field(0), amount, this.stateHashNew]);
+    this.stateHashNew = buildMerkleTree([this.pkHash, this.address, this.destinationsRoot, this.balanceNew, this.inTxsRootNew, this.outTxsRoot]);
+    const messageHash = buildMerkleTree([this.address, Field(0), amount, this.stateHashNew]);
 
     return messageHash;
   }
@@ -492,7 +572,7 @@ async proveStateAfterAbsorbing(transactionDestination: Field, transactionBalance
     // Update balances
     this.balanceNew = this.balance.sub(balance);
 
-    this.stateHashNew = Poseidon.hash([this.pkHash, this.address, this.destinationsRoot, this.balanceNew, this.inTxsRootNew, this.outTxsRoot]);
+    this.stateHashNew = buildMerkleTree([this.pkHash, this.address, this.destinationsRoot, this.balanceNew, this.inTxsRootNew, this.outTxsRoot]);
     const messageHash = Poseidon.hash([this.address, this.stateHashNew]);
 
     return messageHash;
@@ -544,7 +624,7 @@ async proveStateAfterAbsorbing(transactionDestination: Field, transactionBalance
 
   console.log(`inTxsRootNew: ${this.inTxsRootNew.toString()}`);
   console.log(`balance: ${balance.toString()}`);
-  this.stateHashNew = Poseidon.hash([this.pkHash, this.address, this.destinationsRoot, this.balanceNew, this.inTxsRootNew, this.outTxsRoot]);
+  this.stateHashNew = buildMerkleTree([this.pkHash, this.address, this.destinationsRoot, this.balanceNew, this.inTxsRootNew, this.outTxsRoot]);
 
   return true;
 }
@@ -552,7 +632,7 @@ async proveStateAfterAbsorbing(transactionDestination: Field, transactionBalance
 }
 
 function hashTx(destination: Field, balance: Field, salt: Field) {
-  return Poseidon.hash([destination, balance, salt]);
+  return buildMerkleTree([destination, balance, salt]);
 }
 
 function isPartOf(xs: Field, ls: hashInputs) {
@@ -608,7 +688,7 @@ const transitionProgram = ZkProgram({
       ) { 
         //maintain consistency 
         //pubkey should be identical with tx pubkey
-        const messageHash = Poseidon.hash([sourceAddress, publicKey, blsPublicKeyPart1, blsPublicKeyPart2, stateHash]);
+        const messageHash = buildMerkleTree([sourceAddress, publicKey, blsPublicKeyPart1, blsPublicKeyPart2, stateHash]);
 
         //proof of current message inclusion
         verifyMerklePath(messageHash, blockHash, msginclusionmerklePath.array)
@@ -627,7 +707,7 @@ const transitionProgram = ZkProgram({
         const balance = Field(0); 
 
         //reconstruct new stateHash
-        out.Leaf = Poseidon.hash([publicKey, sourceAddress, destinationsRoot, balance, newInputRoot, outputRoot]);
+        out.Leaf = buildMerkleTree([publicKey, sourceAddress, destinationsRoot, balance, newInputRoot, outputRoot]);
         out.Leaf.assertEquals(stateHash);  /**/
 
         return out;
@@ -659,7 +739,7 @@ const transitionProgram = ZkProgram({
         //maintain consistency  
 
         //pubkey should be identical with tx pubkey
-        const messageHash = Poseidon.hash([sourceAddress, Field("0"), amount, stateHash]);
+        const messageHash = buildMerkleTree([sourceAddress, Field("0"), amount, stateHash]);
 
         //verify proof of previous state 
         prevstateproof.verify();
@@ -671,12 +751,12 @@ const transitionProgram = ZkProgram({
         verifyMerklePath(messageHash, blockHash, msginclusionmerklePath.array)
 
         //state inheritance verification //equality of source=source, pk=pk
-        const stateHashOld = Poseidon.hash([publicKey, sourceAddress, destinationsRoot, previousBalance, InputRoot, outputRootPrev]);
+        const stateHashOld = buildMerkleTree([publicKey, sourceAddress, destinationsRoot, previousBalance, InputRoot, outputRootPrev]);
         stateHashOld.assertEquals(prevstateproof.publicOutput.Leaf);
 
         //construct new stateHash
         outputRoot = Field("544619463418997333856881110951498501703454628897449993518845662251180546746");
-        out.Leaf = Poseidon.hash([publicKey, sourceAddress, destinationsRoot, newBalance, InputRoot, outputRoot]);
+        out.Leaf = buildMerkleTree([publicKey, sourceAddress, destinationsRoot, newBalance, InputRoot, outputRoot]);
         out.Leaf.assertEquals(stateHash);
 
         //proof of previous state inclusion
@@ -727,12 +807,12 @@ const transitionProgram = ZkProgram({
         prevstateproof.publicOutput.Root.assertEquals(out.Root);
   
         //state inheritance verification //equality of source=source, pk=pk
-        const stateHashOld = Poseidon.hash([publicKey, sourceAddress, destinationsRoot, previousBalance, previousInputRoot, outputRootPrev]);
+        const stateHashOld = buildMerkleTree([publicKey, sourceAddress, destinationsRoot, previousBalance, previousInputRoot, outputRootPrev]);
         stateHashOld.assertEquals(prevstateproof.publicOutput.Leaf);
 
         //construct new stateHash
         outputRoot = Field("544619463418997333856881110951498501703454628897449993518845662251180546746");
-        const stateHash = Poseidon.hash([publicKey, sourceAddress, destinationsRoot, newBalance, newInputRoot, outputRoot]);
+        const stateHash = buildMerkleTree([publicKey, sourceAddress, destinationsRoot, newBalance, newInputRoot, outputRoot]);
         out.Leaf = stateHash;
 
         //pubkey should be identical with tx pubkey
@@ -807,11 +887,11 @@ const transitionProgram = ZkProgram({
         prevstateproof.publicOutput.Root.assertEquals(out.Root);
 
         //state inheritance verification //equality of source=source, pk=pk
-        const stateHashOld = Poseidon.hash([publicKey, sourceAddress, previousDestinationRoot, balance, InputRoot, previousOutputRoot]);
+        const stateHashOld = buildMerkleTree([publicKey, sourceAddress, previousDestinationRoot, balance, InputRoot, previousOutputRoot]);
         stateHashOld.assertEquals(prevstateproof.publicOutput.Leaf);
 
         //construct new stateHash
-        const stateHash = Poseidon.hash([publicKey, sourceAddress, newDestinationRoot, balance, InputRoot, newOutputRoot]);
+        const stateHash = buildMerkleTree([publicKey, sourceAddress, newDestinationRoot, balance, InputRoot, newOutputRoot]);
         out.Leaf = stateHash;
  
         //construct new messageHash
@@ -880,11 +960,11 @@ const transitionProgram = ZkProgram({
         prevstateproof.publicOutput.Root.assertEquals(out.Root);
 
         //state inheritance verification //equality of source=source, pk=pk
-        const stateHashOld = Poseidon.hash([publicKey, sourceAddress, destinationsRoot, previousBalance, InputRoot, previousOutputRoot]);
+        const stateHashOld = buildMerkleTree([publicKey, sourceAddress, destinationsRoot, previousBalance, InputRoot, previousOutputRoot]);
         stateHashOld.assertEquals(prevstateproof.publicOutput.Leaf);
 
         //construct new stateHash
-        const stateHash = Poseidon.hash([publicKey, sourceAddress, destinationsRoot, newBalance, InputRoot, newOutputRoot]);
+        const stateHash = buildMerkleTree([publicKey, sourceAddress, destinationsRoot, newBalance, InputRoot, newOutputRoot]);
         out.Leaf = stateHash;
 
         //pubkey should be identical with tx pubkey
@@ -945,7 +1025,7 @@ const transitionProgram = ZkProgram({
         out.Root = stateproof.publicOutput.Root;
 
         //state inheritance verification //equality of source=source, pk=pk
-        const stateHash = Poseidon.hash([publicKey, sourceAddress, destinationsRoot, Balance, InputRoot, OutputRoot]);
+        const stateHash = buildMerkleTree([publicKey, sourceAddress, destinationsRoot, Balance, InputRoot, OutputRoot]);
         stateHash.assertEquals(stateproof.publicOutput.Leaf);
 
         //proof of previous state inclusion
